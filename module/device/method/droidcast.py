@@ -121,28 +121,24 @@ class DroidCast(Uiautomator2):
     """
 
     def droidcast_url(self, url='/preview'):
-        if self.is_mumu_over_version_356:
+        if self.is_mumu_over_version_356 or self.config.Emulator_ResolutionFlexible:
             w, h = self.droidcast_width, self.droidcast_height
-            if self.orientation == 0:
-                return f'http://127.0.0.1:{self._droidcast_port}{url}?width={w}&height={h}'
-            elif self.orientation == 1:
-                return f'http://127.0.0.1:{self._droidcast_port}{url}?width={h}&height={w}'
-            else:
-                # logger.warning('DroidCast receives invalid device orientation')
-                pass
+            if w > 0 and h > 0:
+                if self.orientation == 0:
+                    return f'http://127.0.0.1:{self._droidcast_port}{url}?width={w}&height={h}'
+                elif self.orientation == 1:
+                    return f'http://127.0.0.1:{self._droidcast_port}{url}?width={h}&height={w}'
 
         return f'http://127.0.0.1:{self._droidcast_port}{url}'
 
     def droidcast_raw_url(self, url='/screenshot'):
-        if self.is_mumu_over_version_356:
+        if self.is_mumu_over_version_356 or self.config.Emulator_ResolutionFlexible:
             w, h = self.droidcast_width, self.droidcast_height
-            if self.orientation == 0:
-                return f'http://127.0.0.1:{self._droidcast_port}{url}?width={w}&height={h}'
-            elif self.orientation == 1:
-                return f'http://127.0.0.1:{self._droidcast_port}{url}?width={h}&height={w}'
-            else:
-                # logger.warning('DroidCast receives invalid device orientation')
-                pass
+            if w > 0 and h > 0:
+                if self.orientation == 0:
+                    return f'http://127.0.0.1:{self._droidcast_port}{url}?width={w}&height={h}'
+                elif self.orientation == 1:
+                    return f'http://127.0.0.1:{self._droidcast_port}{url}?width={h}&height={w}'
 
         return f'http://127.0.0.1:{self._droidcast_port}{url}'
 
@@ -180,19 +176,18 @@ class DroidCast(Uiautomator2):
             logger.error(f'Unknown DROIDCAST_VERSION: {self.config.DROIDCAST_VERSION}')
 
     def _droidcast_update_resolution(self):
-        if self.is_mumu_over_version_356:
-            logger.info('Update droidcast resolution')
-            w, h = self.resolution_uiautomator2(cal_rotation=False)
-            self.get_orientation()
-            # 720, 1280
-            # mumu12 > 3.5.6 is always a vertical device
-            self.droidcast_width, self.droidcast_height = w, h
-            logger.info(f'Droicast resolution: {(w, h)}')
+        logger.info('Update droidcast resolution')
+        w, h = self.resolution_uiautomator2(cal_rotation=False)
+        self.get_orientation()
+        # 720, 1280
+        # mumu12 > 3.5.6 is always a vertical device
+        self.droidcast_width, self.droidcast_height = w, h
+        logger.info(f'Droicast resolution: {(w, h)}')
 
     @retry
     def screenshot_droidcast(self):
         self.config.DROIDCAST_VERSION = 'DroidCast'
-        if self.is_mumu_over_version_356:
+        if self.is_mumu_over_version_356 or self.config.Emulator_ResolutionFlexible:
             if not self.droidcast_width or not self.droidcast_height:
                 self._droidcast_update_resolution()
 
@@ -204,7 +199,10 @@ class DroidCast(Uiautomator2):
         image = np.frombuffer(image, np.uint8)
         if image is None:
             raise ImageTruncated('Empty image after reading from buffer')
-        if image.shape == (1843200,):
+        # 1280*720*2 = 1843200 (RGB565)
+        # 1920*1080*2 = 4147200
+        # 2560*1440*2 = 7372800
+        if image.size in [1843200, 4147200, 7372800]:
             raise DroidCastVersionIncompatible('Requesting screenshots from `DroidCast` but server is `DroidCast_raw`')
         if image.size < 500:
             logger.warning(f'Unexpected screenshot: {resp.content}')
@@ -227,7 +225,7 @@ class DroidCast(Uiautomator2):
     def screenshot_droidcast_raw(self):
         self.config.DROIDCAST_VERSION = 'DroidCast_raw'
         shape = (720, 1280)
-        if self.is_mumu_over_version_356:
+        if self.is_mumu_over_version_356 or self.config.Emulator_ResolutionFlexible:
             if not self.droidcast_width or not self.droidcast_height:
                 self._droidcast_update_resolution()
             if self.droidcast_height and self.droidcast_width:
@@ -251,15 +249,31 @@ class DroidCast(Uiautomator2):
         except ValueError as e:
             if len(image) < 500:
                 logger.warning(f'Unexpected screenshot: {image}')
-            # Try to load as `DroidCast`
-            image = np.frombuffer(image, np.uint8)
-            if image is not None:
-                image = cv2.imdecode(image, cv2.IMREAD_COLOR)
-                if image is not None:
-                    raise DroidCastVersionIncompatible(
-                        'Requesting screenshots from `DroidCast_raw` but server is `DroidCast`')
-            # ValueError: cannot reshape array of size 0 into shape (720,1280)
-            raise ImageTruncated(str(e))
+            
+            if self.config.Emulator_ResolutionFlexible:
+                shape = self._droidcast_infer_shape(arr.size)
+                if shape:
+                    try:
+                        if rotate:
+                            arr = arr.reshape(shape)
+                            arr = cv2.transpose(arr)
+                            cv2.flip(arr, 1, dst=arr)
+                        else:
+                            arr = arr.reshape(shape)
+                        # Go to convert RGB565 to RGB888
+                    except ValueError:
+                        raise ImageTruncated(str(e))
+                else:
+                    # Try to load as `DroidCast`
+                    image = np.frombuffer(image, np.uint8)
+                    if image is not None:
+                        image = cv2.imdecode(image, cv2.IMREAD_COLOR)
+                        if image is not None:
+                            raise DroidCastVersionIncompatible(
+                                'Requesting screenshots from `DroidCast_raw` but server is `DroidCast`')
+                    raise ImageTruncated(str(e))
+            else:
+                raise ImageTruncated(str(e))
 
         # Convert RGB565 to RGB888
         # https://blog.csdn.net/happy08god/article/details/10516871
@@ -289,6 +303,29 @@ class DroidCast(Uiautomator2):
         image = cv2.merge([r, g, b])
 
         return image
+
+    def _droidcast_infer_shape(self, size):
+        """
+        Infer shape from buffer size.
+        w * h = size, w / h = 16 / 9 => w = 16/9 * h
+        16/9 * h^2 = size => h = sqrt(size * 9 / 16)
+
+        Args:
+            size (int):
+
+        Returns:
+            tuple[int, int]: (height, width) or None
+        """
+        import math
+        h = int(math.sqrt(size * 9 / 16))
+        w = int(h * 16 / 9)
+        if w * h == size:
+            logger.warning(f'DroidCast_raw return buffer with unexpected size {size}, '
+                           f'inferred resolution {w}x{h}')
+            self.droidcast_width, self.droidcast_height = w, h
+            return h, w
+        else:
+            return None
 
     def droidcast_wait_startup(self):
         """

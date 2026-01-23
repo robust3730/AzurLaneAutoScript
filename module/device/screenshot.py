@@ -68,6 +68,7 @@ class Screenshot(Adb, WSA, DroidCast, AScreenCap, Scrcpy, NemuIpc, LDOpenGL):
                 # This will take 40-60ms
                 cv2.fastNlMeansDenoising(self.image, self.image, h=17, templateWindowSize=1, searchWindowSize=2)
             self.image = self._handle_orientated_image(self.image)
+            self.image = self._handle_scaled_image(self.image)
 
             if self.config.Error_SaveError:
                 self.screenshot_deque.append({'time': datetime.now(), 'image': self.image})
@@ -91,11 +92,12 @@ class Screenshot(Adb, WSA, DroidCast, AScreenCap, Scrcpy, NemuIpc, LDOpenGL):
         Returns:
             np.ndarray:
         """
-        width, height = image_size(self.image)
-        if width == 1280 and height == 720:
+        width, height = image_size(image)
+        is_landscape = width >= height
+        if is_landscape:
             return image
 
-        # Rotate screenshots only when they're not 1280x720
+        # Orientation only applies to portrait screenshots
         if self.orientation == 0:
             pass
         elif self.orientation == 1:
@@ -106,6 +108,25 @@ class Screenshot(Adb, WSA, DroidCast, AScreenCap, Scrcpy, NemuIpc, LDOpenGL):
             image = cv2.rotate(image, cv2.ROTATE_90_CLOCKWISE)
         else:
             raise ScriptError(f'Invalid device orientation: {self.orientation}')
+
+        return image
+
+    def _handle_scaled_image(self, image):
+        """
+        Make sure image is of 1280x720 resolution.
+        """
+        width, height = image_size(image)
+        if width == 1280 and height == 720:
+            return image
+
+        from module.base.utils import is_16_9, resize
+        if is_16_9((width, height)):
+            # if self.config.Emulator_ResolutionFlexible:
+            #     logger.info(f'Scaling screenshot from {width}x{height} to 1280x720')
+            image = resize(image, (1280, 720))
+        else:
+            logger.error(f'Screenshot resolution {width}x{height} is not 16:9, scaling anyway')
+            image = resize(image, (1280, 720))
 
         return image
 
@@ -204,12 +225,13 @@ class Screenshot(Adb, WSA, DroidCast, AScreenCap, Scrcpy, NemuIpc, LDOpenGL):
 
     def check_screen_size(self):
         """
-        Screen size must be 1280x720.
+        Screen size must be 16:9.
         Take a screenshot before call.
         """
         if self._screen_size_checked:
             return True
 
+        from module.base.utils import is_16_9_or_9_16
         orientated = False
         for _ in range(2):
             # Check screen size
@@ -218,18 +240,33 @@ class Screenshot(Adb, WSA, DroidCast, AScreenCap, Scrcpy, NemuIpc, LDOpenGL):
             if width == 1280 and height == 720:
                 self._screen_size_checked = True
                 return True
-            elif not orientated and (width == 720 and height == 1280):
-                logger.info('Received orientated screenshot, handling')
-                self.get_orientation()
-                self.image = self._handle_orientated_image(self.image)
-                orientated = True
-                width, height = image_size(self.image)
-                if width == 720 and height == 1280:
-                    logger.info('Unable to handle orientated screenshot, continue for now')
-                    return True
-                else:
+            
+            if width == 720 and height == 1280:
+                if not orientated:
+                    logger.info('Received orientated screenshot, handling')
+                    self.get_orientation()
+                    self.image = self._handle_orientated_image(self.image)
+                    self.image = self._handle_scaled_image(self.image)
+                    orientated = True
                     continue
-            elif self.config.Emulator_Serial == 'wsa-0':
+            
+            if self.config.Emulator_ResolutionFlexible:
+                from module.base.utils import is_16_9
+                if is_16_9((width, height)):
+                    if width > height:
+                        # Already in landscape 16:9, but not 1280x720
+                        # It will be scaled in _handle_scaled_image()
+                        self._screen_size_checked = True
+                        return True
+                    elif not orientated:
+                        logger.info('Received orientated screenshot, handling')
+                        self.get_orientation()
+                        self.image = self._handle_orientated_image(self.image)
+                        self.image = self._handle_scaled_image(self.image)
+                        orientated = True
+                        continue
+            
+            if self.config.Emulator_Serial == 'wsa-0':
                 self.display_resize_wsa(0)
                 return False
             elif hasattr(self, 'app_is_running') and not self.app_is_running():
@@ -237,7 +274,7 @@ class Screenshot(Adb, WSA, DroidCast, AScreenCap, Scrcpy, NemuIpc, LDOpenGL):
                 return True
             else:
                 logger.critical(f'Resolution not supported: {width}x{height}')
-                logger.critical('Please set emulator resolution to 1280x720')
+                logger.critical('Please set emulator resolution to a 16:9 resolution (e.g. 1280x720)')
                 raise RequestHumanTakeover
 
     def check_screen_black(self):

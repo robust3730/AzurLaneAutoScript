@@ -7,6 +7,7 @@
       "ScreenshotMethod": "auto",
       "ControlMethod": "MaaTouch",
       "ScreenshotDedithering": false,
+      "ResolutionFlexible": false,
       "AdbRestart": false
     },
     "EmulatorInfo": {

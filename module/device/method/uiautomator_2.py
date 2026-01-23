@@ -417,17 +417,22 @@ class Uiautomator2(Connection):
             (width, height)
 
         Raises:
-            RequestHumanTakeover: If resolution is not 1280x720
+            RequestHumanTakeover: If resolution is not 16:9
         """
         width, height = self.resolution_uiautomator2()
         logger.attr('Screen_size', f'{width}x{height}')
-        if width == 1280 and height == 720:
-            return (width, height)
-        if width == 720 and height == 1280:
-            return (width, height)
+        if self.config.Emulator_ResolutionFlexible:
+            from module.base.utils import is_16_9
+            if is_16_9((width, height)):
+                return (width, height)
+        else:
+            if width == 1280 and height == 720:
+                return (width, height)
+            if width == 720 and height == 1280:
+                return (width, height)
 
         logger.critical(f'Resolution not supported: {width}x{height}')
-        logger.critical('Please set emulator resolution to 1280x720')
+        logger.critical('Please set emulator resolution to a 16:9 resolution (e.g. 1280x720)')
         raise RequestHumanTakeover
 
     @retry

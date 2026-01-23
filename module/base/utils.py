@@ -8,6 +8,28 @@ from PIL import Image
 REGEX_NODE = re.compile(r'(-?[A-Za-z]+)(-?\d+)')
 
 
+def is_16_9(size):
+    """
+    Check if the given size is 16:9.
+    Supports (width, height) or (height, width).
+
+    Args:
+        size (tuple[int, int]):
+
+    Returns:
+        bool:
+    """
+    w, h = size
+    return abs(w / h - 16 / 9) < 0.01 or abs(h / w - 16 / 9) < 0.01
+
+
+def is_16_9_or_9_16(size):
+    """
+    Check if the given size is 16:9 or 9:16.
+    """
+    return is_16_9(size)
+
+
 def random_normal_distribution_int(a, b, n=3):
     """
     Generate a normal distribution int within the interval.
