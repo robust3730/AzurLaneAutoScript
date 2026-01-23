@@ -219,6 +219,10 @@
           "goto_main",
           "close_game"
         ]
+      },
+      "SaveDetectionDebug": {
+        "type": "checkbox",
+        "value": false
       }
     },
     "DropRecord": {

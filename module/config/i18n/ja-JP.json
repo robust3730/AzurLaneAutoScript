@@ -532,6 +532,10 @@
       "stay_there": "stay_there",
       "goto_main": "goto_main",
       "close_game": "close_game"
+    },
+    "SaveDetectionDebug": {
+      "name": "ボタン認識デバッグ情報の保存",
+      "help": "ボタンの認識に失敗した際、スクリーンショット、テンプレート、色比較などのデバッグ情報を ./log/detect/ ディレクトリに自動保存します。認識問題の調査に使用されます。"
     }
   },
   "DropRecord": {

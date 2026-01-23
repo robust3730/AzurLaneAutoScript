@@ -249,12 +249,20 @@ class ModuleBase:
 
         if isinstance(button, HierarchyButton):
             appear = bool(button)
+            # Save debug info for hierarchy detection failures
+            self._save_detection_debug(button, self.device.image, appear, 'hierarchy')
         elif offset:
             if isinstance(offset, bool):
                 offset = self.config.BUTTON_OFFSET
             appear = button.match(self.device.image, offset=offset, similarity=similarity)
+            # Save debug info for template matching failures
+            self._save_detection_debug(button, self.device.image, appear, 'match', 
+                                      offset=offset, similarity=similarity)
         else:
             appear = button.appear_on(self.device.image, threshold=threshold)
+            # Save debug info for color matching failures
+            self._save_detection_debug(button, self.device.image, appear, 'color', 
+                                      threshold=threshold)
 
         if appear and interval:
             self.interval_timer[button.name].reset()
@@ -470,6 +478,148 @@ class ModuleBase:
             value = load_image(value)
 
         self.device.image = value
+
+    def _save_detection_debug(self, button, image, appear, detection_method, **kwargs):
+        """
+        Save debug information when button detection fails.
+        
+        Args:
+            button (Button): The button being detected
+            image (np.ndarray): Screenshot image
+            appear (bool): Detection result
+            detection_method (str): Detection method used ('color', 'match', 'hierarchy')
+            **kwargs: Additional detection parameters
+        """
+        # Check if debug output is enabled
+        if not self.config.Optimization_SaveDetectionDebug:
+            return
+        
+        # Only save debug info when detection fails
+        if appear:
+            return
+        
+        import os
+        import datetime
+        import json
+        from module.base.utils import save_image, get_color, color_similarity
+        
+        # Create debug directory
+        timestamp = datetime.datetime.now().strftime('%Y%m%d_%H%M%S')
+        debug_dir = f'./log/detect/{timestamp}_{button.name}'
+        
+        try:
+            os.makedirs(debug_dir, exist_ok=True)
+        except Exception as e:
+            logger.warning(f'Failed to create debug directory: {e}')
+            return
+        
+        # Prepare metadata
+        metadata = {
+            'timestamp': timestamp,
+            'button_name': button.name,
+            'detection_method': detection_method,
+            'appear': appear,
+            'button_area': button.area if hasattr(button, 'area') else None,
+        }
+        
+        try:
+            # Save cropped screenshot
+            if hasattr(button, 'area'):
+                screenshot_crop = crop(image, button.area, copy=True)
+                save_image(screenshot_crop, f'{debug_dir}/screenshot_crop.png')
+            
+            # Save template image if available
+            if detection_method == 'match':
+                if hasattr(button, 'ensure_template'):
+                    button.ensure_template()
+                    if button.image is not None:
+                        if isinstance(button.image, list):
+                            # GIF frames
+                            for i, frame in enumerate(button.image):
+                                save_image(frame, f'{debug_dir}/template_frame_{i}.png')
+                        else:
+                            save_image(button.image, f'{debug_dir}/template.png')
+                
+                # Save match result info
+                offset = kwargs.get('offset', 0)
+                similarity = kwargs.get('similarity', 0.85)
+                metadata.update({
+                    'offset': offset,
+                    'similarity_threshold': similarity,
+                })
+                with open(f'{debug_dir}/match_info.txt', 'w', encoding='utf-8') as f:
+                    f.write(f'Button: {button.name}\n')
+                    f.write(f'Area: {button.area}\n')
+                    f.write(f'Detection Method: Template Matching\n')
+                    f.write(f'Offset: {offset}\n')
+                    f.write(f'Similarity Threshold: {similarity}\n')
+                    f.write(f'Result: Not Matched\n')
+            
+            elif detection_method == 'color':
+                # Color comparison
+                actual_color = get_color(image, button.area)
+                expected_color = button.color
+                threshold = kwargs.get('threshold', 10)
+                diff = color_similarity(actual_color, expected_color)
+                
+                metadata.update({
+                    'expected_color': tuple(int(c) for c in expected_color),
+                    'actual_color': tuple(int(c) for c in actual_color),
+                    'color_threshold': threshold,
+                    'color_diff': float(diff),
+                })
+                
+                with open(f'{debug_dir}/color_comparison.txt', 'w', encoding='utf-8') as f:
+                    f.write(f'Button: {button.name}\n')
+                    f.write(f'Area: {button.area}\n')
+                    f.write(f'Detection Method: Color Matching\n')
+                    f.write(f'Expected Color (RGB): {tuple(int(c) for c in expected_color)}\n')
+                    f.write(f'Actual Color (RGB): {tuple(int(c) for c in actual_color)}\n')
+                    f.write(f'Color Difference: {diff}\n')
+                    f.write(f'Threshold: {threshold}\n')
+                    f.write(f'Result: Not Matched (diff {diff} > threshold {threshold})\n')
+                
+                # Create color comparison visualization
+                import numpy as np
+                color_vis = np.zeros((100, 200, 3), dtype=np.uint8)
+                # Left half: expected color
+                color_vis[:, :100] = expected_color[:3]
+                # Right half: actual color
+                color_vis[:, 100:] = actual_color[:3]
+                save_image(color_vis, f'{debug_dir}/color_visual.png')
+                
+                # Create diff heatmap for the cropped area
+                screenshot_crop = crop(image, button.area, copy=True)
+                if screenshot_crop.size > 0:
+                    # Calculate per-pixel difference
+                    expected_array = np.array(expected_color[:3], dtype=np.float32)
+                    diff_map = np.abs(screenshot_crop.astype(np.float32) - expected_array)
+                    diff_map = np.max(diff_map, axis=2).astype(np.uint8)
+                    
+                    # Apply colormap
+                    heatmap = cv2.applyColorMap(diff_map, cv2.COLORMAP_JET)
+                    save_image(heatmap, f'{debug_dir}/diff_heatmap.png')
+            
+            elif detection_method == 'hierarchy':
+                xpath = getattr(button, 'xpath', None)
+                metadata.update({
+                    'xpath': xpath,
+                })
+                with open(f'{debug_dir}/hierarchy_info.txt', 'w', encoding='utf-8') as f:
+                    f.write(f'Button: {button.name}\n')
+                    f.write(f'Detection Method: Hierarchy (XPath)\n')
+                    f.write(f'Result: Not Found\n')
+                    if xpath:
+                        f.write(f'XPath: {xpath}\n')
+            
+            # Save metadata as JSON
+            with open(f'{debug_dir}/metadata.json', 'w', encoding='utf-8') as f:
+                json.dump(metadata, f, indent=2, ensure_ascii=False)
+            
+            logger.info(f'Detection debug info saved to: {debug_dir}')
+            
+        except Exception as e:
+            logger.warning(f'Failed to save detection debug info: {e}')
 
     def set_server(self, server):
         """
