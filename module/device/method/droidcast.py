@@ -181,8 +181,15 @@ class DroidCast(Uiautomator2):
         self.get_orientation()
         # 720, 1280
         # mumu12 > 3.5.6 is always a vertical device
-        self.droidcast_width, self.droidcast_height = w, h
-        logger.info(f'Droicast resolution: {(w, h)}')
+        if self.config.Emulator_ResolutionFlexible:
+            # Scale to 1280x720 at the source
+            if w > h:
+                self.droidcast_width, self.droidcast_height = 1280, 720
+            else:
+                self.droidcast_width, self.droidcast_height = 720, 1280
+        else:
+            self.droidcast_width, self.droidcast_height = w, h
+        logger.info(f'Droicast resolution: {(w, h)}, screenshot resolution: {(self.droidcast_width, self.droidcast_height)}')
 
     @retry
     def screenshot_droidcast(self):

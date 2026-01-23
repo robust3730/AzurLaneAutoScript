@@ -201,14 +201,20 @@ class AScreenCap(Connection):
 
     @retry
     def screenshot_ascreencap(self):
-        content = self.adb_shell([self.config.ASCREENCAP_FILEPATH_REMOTE, '--pack', '2', '--stdout'], stream=True)
+        cmd = [self.config.ASCREENCAP_FILEPATH_REMOTE, '--pack', '2', '--stdout']
+        if self.config.Emulator_ResolutionFlexible:
+            cmd += ['--scale', '1280x720']
+        content = self.adb_shell(cmd, stream=True)
 
         return self.__process_screenshot(content)
-
+ 
     @retry
     def screenshot_ascreencap_nc(self):
-        data = self.adb_shell_nc([self.config.ASCREENCAP_FILEPATH_REMOTE, '--pack', '2', '--stdout'])
+        cmd = [self.config.ASCREENCAP_FILEPATH_REMOTE, '--pack', '2', '--stdout']
+        if self.config.Emulator_ResolutionFlexible:
+            cmd += ['--scale', '1280x720']
+        data = self.adb_shell_nc(cmd)
         if len(data) < 500:
             logger.warning(f'Unexpected screenshot: {data}')
-
+ 
         return self.__uncompress(data)
