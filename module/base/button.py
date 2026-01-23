@@ -231,6 +231,21 @@ class Button(Resource):
         else:
             res = cv2.matchTemplate(self.image, image, cv2.TM_CCOEFF_NORMED)
             _, sim, _, point = cv2.minMaxLoc(res)
+
+            # If match failed, try cropping template edges (1px)
+            # This handles cases where template/screenshot edges have artifacts
+            h, w = self.image.shape[:2]
+            if sim < similarity and (h > 4 and w > 4):
+                template_crop = self.image[1:-1, 1:-1]
+                res_crop = cv2.matchTemplate(template_crop, image, cv2.TM_CCOEFF_NORMED)
+                _, sim_crop, _, point_crop = cv2.minMaxLoc(res_crop)
+                
+                if sim_crop > sim:
+                    sim = sim_crop
+                    # Adjust point: cropped template starts at (1,1) of original template
+                    # So if we found it at (x,y), the original template would be at (x-1, y-1)
+                    point = (point_crop[0] - 1, point_crop[1] - 1)
+        
             self._button_offset = area_offset(self._button, offset[:2] + np.array(point))
             return sim > similarity
 

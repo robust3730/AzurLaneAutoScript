@@ -532,6 +532,10 @@
       "stay_there": "停在原處",
       "goto_main": "前往主界面",
       "close_game": "關閉遊戲"
+    },
+    "SaveDetectionDebug": {
+      "name": "儲存按鈕偵測偵錯資訊",
+      "help": "當按鈕偵測失敗時，自動儲存螢幕擷取畫面、模板、顏色對比等偵錯資訊至 ./log/detect/ 目錄，用於排查偵測問題。"
     }
   },
   "DropRecord": {

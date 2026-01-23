@@ -532,6 +532,10 @@
       "stay_there": "停在原处",
       "goto_main": "前往主界面",
       "close_game": "关闭游戏"
+    },
+    "SaveDetectionDebug": {
+      "name": "保存按钮检测调试信息",
+      "help": "当按钮检测失败时，自动保存截图、模板、颜色对比等调试信息至 ./log/detect/ 目录，用于排查检测问题"
     }
   },
   "DropRecord": {
