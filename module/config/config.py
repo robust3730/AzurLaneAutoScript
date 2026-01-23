@@ -63,6 +63,7 @@ class AzurLaneConfig(ConfigUpdater, ManualConfig, GeneratedConfig, ConfigWatcher
 
     # Class property
     is_hoarding_task = True
+    Emulator_ResolutionFlexible = True
 
     def __setattr__(self, key, value):
         if key in self.bound:

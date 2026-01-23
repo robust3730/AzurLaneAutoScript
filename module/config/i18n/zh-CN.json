@@ -449,6 +449,10 @@
     "AdbRestart": {
       "name": "在检测不到设备的时候尝试重启adb",
       "help": ""
+    },
+    "ResolutionFlexible": {
+      "name": "自适应模拟器分辨率",
+      "help": "允许使用任意 16:9 分辨率。截图将自动缩放至 1280x720。"
     }
   },
   "EmulatorInfo": {
