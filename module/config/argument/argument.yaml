@@ -55,6 +55,7 @@ Emulator:
     ]
   ScreenshotDedithering: false
   AdbRestart: false
+  ResolutionFlexible: true
 EmulatorInfo:
   Emulator:
     value: auto

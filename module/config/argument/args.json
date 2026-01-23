@@ -143,6 +143,10 @@
       "AdbRestart": {
         "type": "checkbox",
         "value": false
+      },
+      "ResolutionFlexible": {
+        "type": "checkbox",
+        "value": true
       }
     },
     "EmulatorInfo": {

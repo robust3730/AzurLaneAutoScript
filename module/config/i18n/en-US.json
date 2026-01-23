@@ -449,6 +449,10 @@
     "AdbRestart": {
       "name": "Try to restart adb when no device found",
       "help": ""
+    },
+    "ResolutionFlexible": {
+      "name": "Flexible Emulator Resolution",
+      "help": "Allow any 16:9 resolution. Screenshots will be scaled to 1280x720."
     }
   },
   "EmulatorInfo": {

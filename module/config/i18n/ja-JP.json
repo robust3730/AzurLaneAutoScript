@@ -449,6 +449,10 @@
     "AdbRestart": {
       "name": "Emulator.AdbRestart.name",
       "help": "Emulator.AdbRestart.help"
+    },
+    "ResolutionFlexible": {
+      "name": "自適応エミュレータ解像度",
+      "help": "任意の 16:9 解像度を許可します。スクリーンショットは 1280x720 に自動的にスケーリングされます。"
     }
   },
   "EmulatorInfo": {
