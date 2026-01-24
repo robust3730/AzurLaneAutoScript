@@ -254,6 +254,8 @@ class ModuleBase:
         elif offset:
             if isinstance(offset, bool):
                 offset = self.config.BUTTON_OFFSET
+            # Pass resolution information to button for logging
+            button._screenshot_resolution = self.device.get_render_resolution()
             appear = button.match(self.device.image, offset=offset, similarity=similarity)
             # Save debug info for template matching failures
             self._save_detection_debug(button, self.device.image, appear, 'match', 

@@ -1,5 +1,8 @@
 import os
 import traceback
+import json
+from pathlib import Path
+from datetime import datetime
 
 import imageio
 import cv2
@@ -151,16 +154,27 @@ class Button(Resource):
         """
         Load asset image.
         If needs to call self.match, call this first.
+        Supports resolution-specific asset loading with fallback to 720p.
         """
         if not self._match_init:
+            # Try to load resolution-specific asset if available
+            file_to_load = self.file
+            if hasattr(self, '_screenshot_resolution'):
+                resolution_specific_file = self._get_resolution_specific_file(
+                    self.file, self._screenshot_resolution
+                )
+                if resolution_specific_file != self.file:
+                    logger.info(f'Loading resolution-specific asset: {resolution_specific_file}')
+                    file_to_load = resolution_specific_file
+            
             if self.is_gif:
                 self.image = []
-                for image in imageio.mimread(self.file):
+                for image in imageio.mimread(file_to_load):
                     image = image[:, :, :3].copy() if len(image.shape) == 3 else image
                     image = crop(image, self.area)
                     self.image.append(image)
             else:
-                self.image = load_image(self.file, self.area)
+                self.image = load_image(file_to_load, self.area)
             self._match_init = True
 
     def ensure_binary_template(self):
@@ -200,6 +214,138 @@ class Button(Resource):
         self._match_binary_init = False
         self._match_luma_init = False
 
+    def _get_resolution_label(self, resolution):
+        """
+        Get resolution label for asset directory.
+        
+        Args:
+            resolution (tuple): (width, height)
+            
+        Returns:
+            str: Resolution label like '1080p', '1440p', etc.
+        """
+        width, height = resolution
+        if width == 1280 and height == 720:
+            return None  # Default 720p, no subdirectory
+        elif width == 1920 and height == 1080:
+            return '1080p'
+        elif width == 2560 and height == 1440:
+            return '1440p'
+        elif width == 3840 and height == 2160:
+            return '2160p'
+        else:
+            # For other resolutions, use height as label
+            return f'{height}p'
+
+    def _get_resolution_specific_file(self, original_file, resolution):
+        """
+        Get resolution-specific asset file path.
+        
+        Args:
+            original_file (str): Original asset file path
+            resolution (tuple): (width, height)
+            
+        Returns:
+            str: Resolution-specific file path if exists, otherwise original path
+        """
+        if not original_file:
+            return original_file
+            
+        resolution_label = self._get_resolution_label(resolution)
+        if not resolution_label:
+            return original_file
+        
+        # Convert to Path and normalize
+        original_path = Path(original_file)
+        parts = original_path.parts
+        
+        # Check if it's an assets path
+        if len(parts) < 2 or parts[0] not in ('assets', './assets'):
+            return original_file
+        
+        # Normalize 'assets' vs './assets'
+        if parts[0] == './assets':
+            base_parts = parts[:1]  # Keep './assets'
+            server_idx = 1
+        else:
+            base_parts = parts[:1]  # Keep 'assets'
+            server_idx = 1
+        
+        # Insert resolution label after server (e.g., 'cn', 'en', etc.)
+        # Structure: assets/cn/1080p/ui/NAV_GENERAL.png
+        new_parts = base_parts + parts[server_idx:server_idx+1] + (resolution_label,) + parts[server_idx+1:]
+        resolution_specific_path = Path(*new_parts)
+        
+        # Check if resolution-specific file exists
+        if resolution_specific_path.exists():
+            return str(resolution_specific_path)
+        else:
+            return original_file
+
+    def _log_suspicious_match(self, template, screenshot_region, sim_standard, sim_retry, 
+                              point, resolution):
+        """
+        Log suspicious match for manual review.
+        Only keeps one log per button name to avoid excessive output.
+        
+        Args:
+            template (np.ndarray): Original template image
+            screenshot_region (np.ndarray): Matched region from screenshot
+            sim_standard (float): Similarity score from standard matching
+            sim_retry (float): Similarity score from retry matching
+            point (tuple): Match location (x, y)
+            resolution (tuple): Original screenshot resolution (width, height)
+        """
+        try:
+            # Check if a log already exists for this button
+            log_base_dir = Path('log') / 'suspicious_matches'
+            if log_base_dir.exists():
+                # Find and remove existing logs for this button
+                for existing_dir in log_base_dir.iterdir():
+                    if existing_dir.is_dir() and existing_dir.name.endswith(f'_{self.name}'):
+                        # logger.info(f'Skip logging suspicious match for {self.name}')
+                        return
+
+            # Create log directory
+            timestamp = datetime.now().strftime('%Y%m%d_%H%M%S_%f')[:-3]
+            log_dir = log_base_dir / f'{timestamp}_{self.name}'
+            log_dir.mkdir(parents=True, exist_ok=True)
+            
+            # Save template image (convert BGR to RGB)
+            template_path = log_dir / 'template.png'
+            template_rgb = cv2.cvtColor(template, cv2.COLOR_BGR2RGB)
+            cv2.imwrite(str(template_path), template_rgb)
+            
+            # Save screenshot region (convert BGR to RGB)
+            screenshot_path = log_dir / 'screenshot.png'
+            screenshot_rgb = cv2.cvtColor(screenshot_region, cv2.COLOR_BGR2RGB)
+            cv2.imwrite(str(screenshot_path), screenshot_rgb)
+            
+            # Save metadata
+            metadata = {
+                'button_name': self.name,
+                'file_path': self.file if self.file else None,
+                'similarity_standard': float(sim_standard),
+                'similarity_retry': float(sim_retry),
+                'match_point': {'x': int(point[0]), 'y': int(point[1])},
+                'area': {
+                    'x1': int(self.area[0]), 'y1': int(self.area[1]),
+                    'x2': int(self.area[2]), 'y2': int(self.area[3])
+                },
+                'resolution': {'width': int(resolution[0]), 'height': int(resolution[1])},
+                'timestamp': timestamp
+            }
+            
+            metadata_path = log_dir / 'metadata.json'
+            with open(metadata_path, 'w', encoding='utf-8') as f:
+                json.dump(metadata, f, indent=2, ensure_ascii=False)
+            
+            logger.info(f'Logged suspicious match for {self.name} to {log_dir}')
+            
+        except Exception as e:
+            logger.warning(f'Failed to log suspicious match for {self.name}: {e}')
+
+
     def match(self, image, offset=30, similarity=0.85):
         """Detects button by template matching. To Some button, its location may not be static.
 
@@ -233,7 +379,9 @@ class Button(Resource):
         else:
             res = cv2.matchTemplate(self.image, image, cv2.TM_CCOEFF_NORMED)
             _, sim, _, point = cv2.minMaxLoc(res)
+            sim_standard = sim  # Store original similarity for logging
 
+            # suspicious match detection
             # If match failed, try cropping template edges (1px) and Gaussian blur
             # This handles cases where template/screenshot has slight positional shift or artifacts
             h, w = self.image.shape[:2]
@@ -244,24 +392,35 @@ class Button(Resource):
                 res_retry = cv2.matchTemplate(template_retry, image_retry, cv2.TM_CCOEFF_NORMED)
                 _, sim_retry, _, point_retry = cv2.minMaxLoc(res_retry)
                 
-                if sim_retry > sim:
-                    sim = sim_retry
+                # Retry is only for suspicious match detection, not to override standard matching
+                # If retry succeeds where standard failed, log it for manual review
+                if sim_retry >= similarity:
                     # Adjust point: cropped template starts at (1,1) of original template
                     # So if we found it at (x,y), the original template would be at (x-1, y-1)
-                    point = (point_retry[0] - 1, point_retry[1] - 1)
+                    point_retry_adjusted = (point_retry[0] - 1, point_retry[1] - 1)
+                    
+                    try:
+                        # Get resolution from device (if available)
+                        resolution = getattr(self, '_screenshot_resolution', (1280, 720))
+                        
+                        new_template_region = image[point_retry_adjusted[1]:point_retry_adjusted[1] + h, 
+                                                    point_retry_adjusted[0]:point_retry_adjusted[0] + w]
+                        if new_template_region.shape == self.image.shape:
+                            self._log_suspicious_match(
+                                template=self.image,
+                                screenshot_region=new_template_region,
+                                sim_standard=sim_standard,
+                                sim_retry=sim_retry,
+                                point=point_retry_adjusted,
+                                resolution=resolution
+                            )
+                    except Exception as e:
+                        logger.warning(f'Failed to log suspicious match: {e}')
 
-                    # Store the matched image into cache if successful
-                    # This allows standard matching to succeed directly next time
-                    if sim >= similarity:
-                        new_template = image[point[1]:point[1] + h, point[0]:point[0] + w]
-                        if new_template.shape == self.image.shape:
-                            self.image = new_template.copy()
-                            self._match_binary_init = False
-                            self._match_luma_init = False
-                            logger.info(f"Button image updated: {self.name}")
-        
             self._button_offset = area_offset(self._button, offset[:2] + np.array(point))
             return sim > similarity
+
+
 
     def match_binary(self, image, offset=30, similarity=0.85):
         """Detects button by template matching. To Some button, its location may not be static.
