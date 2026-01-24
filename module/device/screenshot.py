@@ -130,6 +130,22 @@ class Screenshot(Adb, WSA, DroidCast, AScreenCap, Scrcpy, NemuIpc, LDOpenGL):
 
         return image
 
+    def get_render_resolution(self):
+        """
+        Get the actual render resolution of the device.
+        Returns the resolution before any scaling is applied.
+        
+        Returns:
+            tuple: (width, height) of the original render resolution
+        """
+        # try get the actual device resolution
+        if hasattr(self, 'resolution_uiautomator2'):
+            w, h = self.resolution_uiautomator2(cal_rotation=False)
+            return w, h
+        
+        # Fallback
+        return (1280, 720)
+
     @cached_property
     def screenshot_deque(self):
         try:
