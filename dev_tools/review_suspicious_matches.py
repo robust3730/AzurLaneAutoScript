@@ -232,6 +232,74 @@ def reject_match(match_info):
         return False
 
 
+def save_similarity_override(match_info):
+    """
+    Save the standard similarity as an override for this button.
+    """
+    match_dir = match_info['dir']
+    metadata = match_info['metadata']
+    
+    original_file = metadata.get('file_path')
+    if not original_file:
+        print(f"  [ERROR] No file_path in metadata")
+        return False
+    
+    resolution = metadata.get('resolution')
+    if not resolution:
+        print(f"  [ERROR] No resolution in metadata")
+        return False
+    
+    sim_standard = metadata.get('similarity_standard', 0.85)
+    # Suggest a slightly lower similarity (e.g., -0.005) to be safe
+    suggested_sim = round(sim_standard - 0.005, 4)
+    
+    print(f"  Standard match score was: {sim_standard:.4f}")
+    choice = input(f"  Confirm new threshold [{suggested_sim}]: ").strip()
+    new_sim = float(choice) if choice else suggested_sim
+    
+    # Structure: assets/{server}/{res_label}/similarity.json
+    original_path = Path(original_file)
+    parts = original_path.parts
+    if len(parts) < 2 or parts[0] not in ('assets', './assets'):
+        print(f"  [ERROR] Not an assets path: {original_file}")
+        return False
+        
+    width, height = resolution['width'], resolution['height']
+    if width == 1920 and height == 1080:
+        res_label = '1080p'
+    elif width == 2560 and height == 1440:
+        res_label = '1440p'
+    elif width == 3840 and height == 2160:
+        res_label = '2160p'
+    else:
+        res_label = f'{height}p'
+        
+    server_idx = 1
+    config_dir = Path(parts[0]) / parts[server_idx] / res_label
+    config_dir.mkdir(parents=True, exist_ok=True)
+    config_path = config_dir / 'similarity.json'
+    
+    data = {}
+    if config_path.exists():
+        with open(config_path, 'r', encoding='utf-8') as f:
+            try:
+                data = json.load(f)
+            except json.JSONDecodeError:
+                pass
+                
+    data[metadata['button_name']] = new_sim
+    
+    with open(config_path, 'w', encoding='utf-8') as f:
+        json.dump(data, f, indent=2, ensure_ascii=False)
+        
+    print(f"  [SUCCESS] Saved similarity override ({new_sim}) for {metadata['button_name']} to {config_path}")
+    
+    # Delete the log directory
+    shutil.rmtree(match_dir)
+    print(f"  [SUCCESS] Removed log directory: {match_dir}")
+    return True
+
+
 def main():
     """Main interactive review loop."""
     print("=" * 80)
@@ -250,6 +318,7 @@ def main():
     print()
     print("Controls:")
     print("  a - Approve (copy screenshot to resolution-specific asset path)")
+    print("  t - Threshold (record current similarity as override)")
     print("  r - Reject (delete log entry)")
     print("  s - Skip (keep for later review)")
     print("  q - Quit")
@@ -272,10 +341,16 @@ def main():
         
         # Get user input
         while True:
-            choice = input("\n  Action [a/r/s/q]: ").lower().strip()
+            choice = input("\n  Action [a/t/r/s/q]: ").lower().strip()
             
             if choice == 'a':
                 approve_match(match_info)
+                break
+            elif choice == 't':
+                try:
+                    save_similarity_override(match_info)
+                except Exception as e:
+                    print(f"  [ERROR] Failed to save threshold: {e}")
                 break
             elif choice == 'r':
                 reject_match(match_info)
