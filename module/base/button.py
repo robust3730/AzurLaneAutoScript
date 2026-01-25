@@ -16,6 +16,8 @@ from module.config.server import VALID_SERVER
 
 
 class Button(Resource):
+    _similarity_config_cache = {}
+
     def __init__(self, area, color, button, file=None, name=None):
         """Initialize a Button instance.
 
@@ -282,6 +284,49 @@ class Button(Resource):
         else:
             return original_file
 
+    def _get_similarity_override(self, similarity, resolution):
+        """
+        Get similarity override for this button and resolution.
+        
+        Args:
+            similarity (float): Original similarity.
+            resolution (tuple): (width, height)
+            
+        Returns:
+            float: Overridden similarity if found, otherwise original.
+        """
+        resolution_label = self._get_resolution_label(resolution)
+        if not resolution_label or not self.file:
+            return similarity
+            
+        # Structure: assets/{server}/{res_label}/similarity.json
+        original_path = Path(self.file)
+        parts = original_path.parts
+        if len(parts) < 2 or parts[0] not in ('assets', './assets'):
+            return similarity
+            
+        server_idx = 1
+        config_path = Path(parts[0]) / parts[server_idx] / resolution_label / 'similarity.json'
+        config_path_str = str(config_path)
+        
+        # Check cache first
+        if config_path_str in Button._similarity_config_cache:
+            data = Button._similarity_config_cache[config_path_str]
+        else:
+            data = {}
+            if config_path.exists():
+                try:
+                    with open(config_path, 'r', encoding='utf-8') as f:
+                        data = json.load(f)
+                except Exception:
+                    pass
+            Button._similarity_config_cache[config_path_str] = data
+            
+        if self.name in data:
+            return float(data[self.name])
+                
+        return similarity
+
     def _log_suspicious_match(self, template, screenshot_region, sim_standard, sim_retry, 
                               point, resolution):
         """
@@ -368,6 +413,10 @@ class Button(Resource):
             offset = np.array((-3, -offset, 3, offset))
         image = crop(image, offset + self.area, copy=False)
 
+        # Apply similarity override if available
+        if hasattr(self, '_screenshot_resolution'):
+            similarity = self._get_similarity_override(similarity, self._screenshot_resolution)
+
         if self.is_gif:
             for template in self.image:
                 res = cv2.matchTemplate(template, image, cv2.TM_CCOEFF_NORMED)
@@ -394,7 +443,7 @@ class Button(Resource):
                 
                 # Retry is only for suspicious match detection, not to override standard matching
                 # If retry succeeds where standard failed, log it for manual review
-                if sim_retry >= similarity:
+                if sim_retry >= similarity - 0.05:
                     # Adjust point: cropped template starts at (1,1) of original template
                     # So if we found it at (x,y), the original template would be at (x-1, y-1)
                     point_retry_adjusted = (point_retry[0] - 1, point_retry[1] - 1)
